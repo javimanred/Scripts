@@ -1,0 +1,25 @@
+SELECT	@@servername AS ServerName, 
+		CASE WHEN @@servicename = 'MSSQLSERVER' THEN 'Default' ELSE @@SERVICENAME END AS InstanceName,
+		@@VERSION AS Version,
+		( SELECT value_in_use 
+      FROM sys.configurations 
+      WHERE name = 'min server memory (MB)') AS MinMemory, 
+		( SELECT value_in_use 
+      FROM sys.configurations 
+      WHERE name = 'max server memory (MB)') AS MaxMemory,
+		CONVERT (varchar(256), SERVERPROPERTY('collation')) AS Collation,
+		( SELECT service_account 
+      FROM sys.dm_server_services 
+       WHERE servicename = 'SQL Server (MSSQLSERVER)') AS SQLServerAccount,
+		( SELECT service_account 
+      FROM sys.dm_server_services 
+      WHERE servicename = 'SQL Server Agent (MSSQLSERVER)') AS AgentAccount,
+		( SELECT local_tcp_port 
+      FROM sys.dm_exec_connections 
+      WHERE session_id = @@SPID) AS PortNumber,
+		( SELECT value_in_use 
+      FROM sys.configurations 
+      WHERE name = 'max degree of parallelism') AS MaxDegreeOfParallelism,
+		( SELECT CASE WHEN value_in_use = 0 THEN 'FALSE' ELSE 'TRUE' END 
+      FROM sys.configurations 
+      WHERE name = 'Ad Hoc Distributed Queries') AS AdHocWorkloads
