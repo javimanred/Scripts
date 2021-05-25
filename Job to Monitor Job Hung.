@@ -1,0 +1,206 @@
+select *
+from msdb.dbo.sysmail_profile p 
+join msdb.dbo.sysmail_profileaccount pa on p.profile_id = pa.profile_id 
+join msdb.dbo.sysmail_account a on pa.account_id = a.account_id 
+join msdb.dbo.sysmail_server s on a.account_id = s.account_id
+
+USE OGP_Compas_Support
+GO
+SELECT               
+		SP.SPID SPID,                
+		SP.physical_io physical_io,                
+		SP.cpu cpu,             
+		a.writes writes,               
+		a.reads reads,               
+		a.logical_reads logical_reads
+INTO OGP_Compas_Support.dbo.LastSPIDExecuted
+FROM		sys.sysprocesses	 AS SP with(nolock)                 
+INNER JOIN	sys.dm_exec_requests AS A  with(nolock) ON SP.SPID = A.session_id               
+CROSS APPLY sys.dm_exec_query_plan(A.plan_handle) as B                
+CROSS APPLY sys.dm_exec_sql_text(A.sql_handle) as C  
+WHERE 1=2
+GO
+CREATE PROCEDURE USP_SPID_Monitoring
+AS
+IF EXISTS(
+		SELECT	1
+		FROM		sys.sysprocesses	 AS SP with(nolock)                 
+		INNER JOIN	sys.dm_exec_requests AS A  with(nolock) ON SP.SPID = A.session_id               
+		INNER JOIN OGP_Compas_Support.dbo.LastSPIDExecuted AS LS ON  LS.SPID=SP.spid
+		CROSS APPLY sys.dm_exec_query_plan(A.plan_handle) as B                
+		CROSS APPLY sys.dm_exec_sql_text(A.sql_handle) as C              
+		WHERE SP.spid <> @@spid   AND (LS.physical_io+LS.cpu+LS.writes+LS.reads)=(SP.physical_io+SP.cpu+A.writes+A.reads) and SP.cmd <> 'WAITFOR'
+		)
+BEGIN
+		DECLARE @xml NVARCHAR(MAX),
+		@body NVARCHAR(MAX),
+		@xml2 NVARCHAR(MAX), 
+		@body2 NVARCHAR(MAX)
+		
+		SELECT   DB_NAME(SP.dbid) AS DatabaseName,               
+				 A.total_elapsed_time/1000 TimeSec,               
+				 SP.loginame as username,     
+				 A.percent_complete PctComplete,             
+				 SP.hostname hostname,               
+				 SP.SPID SPID,                
+				 SP.Blocked Blocked,                
+				 SP.status status,                
+				 SP.lastwaittype LastWaitType,      
+				 SP.cmd Command,               
+				 object_name(C.objectid) as processes,                
+				 (SELECT SUBSTRING(C.text,A.statement_start_offset/2,(CASE WHEN A.statement_end_offset = -1                
+				 THEN LEN(CONVERT(nvarchar(max), C.text)) * 2 ELSE A.statement_end_offset END -A.statement_start_offset)/2)) SQLBatchText,               
+				 SP.physical_io physical_io,                
+				 SP.cpu cpu,             
+				 a.writes writes,               
+				 a.reads reads,               
+				 a.logical_reads logical_reads,               
+				 a.scheduler_id scheduler_id,                      
+				 SP.login_time LoginTime,                
+				 C.text SQLStatementText
+		INTO	 #tmpProcesses
+		FROM	 sys.sysprocesses AS SP with(nolock)                 
+				 INNER JOIN sys.dm_exec_requests as A with(nolock)              
+				 ON SP.SPID = A.session_id               
+				 CROSS APPLY sys.dm_exec_query_plan(A.plan_handle) as B                
+				 CROSS APPLY sys.dm_exec_sql_text(A.sql_handle) as C              
+				 WHERE SP.spid <> @@spid  
+				 
+		SET @xml = CAST(( SELECT [DatabaseName] AS 'td','',[TimeSec] AS 'td','', [Username] AS 'td','', [PctComplete] AS 'td'
+						,'', Hostname AS 'td','', SPID AS 'td','', Blocked AS 'td','', [status] AS 'td','', [LastWaitType] AS 'td'
+						,'', Command AS 'td','', ISNULL(Processes,0) AS 'td','', SQLBatchText AS 'td','', Physical_IO AS 'td'
+						,'', cpu AS 'td','', writes AS 'td','', reads AS 'td','', logical_reads AS 'td'
+						,'', scheduler_id AS 'td','', LoginTime AS 'td','', SQLStatementText AS 'td'
+		FROM #tmpProcesses 
+		ORDER BY 1 
+		FOR XML PATH('tr'), ELEMENTS ) AS NVARCHAR(MAX))
+		
+		SET @body ='<html><body><H3>Processes Info</H3>
+		<table border = 1> 
+		<tr>
+		<th> Database </th> <th> Time Sec </th> <th> User </th> <th> % Complete </th>
+		<th> HostName </th> <th> SPID </th> <th> Blocked </th> <th> Status </th> <th> Last Wait Type </th> 
+		<th> Command </th> <th> Processes </th> <th> SQL Batch </th><th> Physical IO </th> 
+		<th> CPU </th> <th> Writes </th> <th> Reads </th> <th> Logical Reads </th>
+		<th> Schedule ID </th> <th> login Time </th> <th> SQL Statement </th>
+		</tr>'  
+		
+		SET @xml2 =  CAST((SELECT DATEDIFF(SECOND, aj.start_execution_date, GETDATE())  AS 'td','',sj.name AS 'td',''
+				FROM msdb..sysjobactivity aj
+				INNER JOIN msdb..sysjobs sj ON sj.job_id = aj.job_id
+				WHERE aj.stop_execution_date IS NULL 
+					AND aj.start_execution_date IS NOT NULL -- condition: job is currently running 
+					AND NOT EXISTS (SELECT 1
+									FROM msdb..sysjobactivity new
+									WHERE new.job_id = aj.job_id AND 
+										  new.start_execution_date > aj.start_execution_date
+								   ) -- End: Not Exists 
+					ORDER BY 1 
+		FOR XML PATH('tr'), ELEMENTS ) AS NVARCHAR(MAX))
+
+		SET @body2 ='<html><body><H3>Jobs </H3>
+		<table border = 1> 
+		<tr>
+		<th> Time Exec in Sec </th> 
+		<th> Job Name </th> 
+		</tr>' 
+	
+		SET @body = @body2 + @xml2 +'</table></body></html>' +@body + @xml +'</table></body></html>'
+
+		EXEC msdb.dbo.sp_send_dbmail @profile_name = N'DBMon'
+				,-- TODO 
+				@recipients  = N'sqlsupport@orbitgroup.ca'
+				,-- TODO 
+				@subject = N'Warning: Job Hanging'
+				,-- TODO 
+				@body = @body
+				,
+				@body_format = 'HTML'
+
+DROP TABLE #tmpProcesses				
+END
+ELSE
+	PRINT 'Job not running or not (yet) exceeding treshold';
+GO
+TRUNCATE TABLE OGP_Compas_Support.dbo.LastSPIDExecuted
+GO
+INSERT INTO OGP_Compas_Support.dbo.LastSPIDExecuted
+SELECT               
+		SP.SPID SPID,                
+		SP.physical_io physical_io,                
+		SP.cpu cpu,             
+		a.writes writes,               
+		a.reads reads,               
+		a.logical_reads logical_reads
+FROM		sys.sysprocesses	 AS SP with(nolock)                 
+INNER JOIN	sys.dm_exec_requests AS A  with(nolock) ON SP.SPID = A.session_id               
+CROSS APPLY sys.dm_exec_query_plan(A.plan_handle) as B                
+CROSS APPLY sys.dm_exec_sql_text(A.sql_handle) as C              
+WHERE SP.spid <> @@spid 
+GO
+USE [msdb]
+GO
+/****** Object:  Job [_Orbit Job Monitoring]    Script Date: 2021-05-24 1:27:19 PM ******/
+BEGIN TRANSACTION
+DECLARE @ReturnCode INT
+SELECT @ReturnCode = 0
+/****** Object:  JobCategory [[Uncategorized (Local)]]    Script Date: 2021-05-24 1:27:19 PM ******/
+IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'[Uncategorized (Local)]' AND category_class=1)
+BEGIN
+EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'[Uncategorized (Local)]'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+
+END
+
+DECLARE @jobId BINARY(16)
+EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'_Orbit Job Monitoring', 
+		@enabled=1, 
+		@notify_level_eventlog=0, 
+		@notify_level_email=2, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'No description available.', 
+		@category_name=N'[Uncategorized (Local)]', 
+		@owner_login_name=N'sa', 
+		@notify_email_operator_name=N'SqlSupport', @job_id = @jobId OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [Monitoring]    Script Date: 2021-05-24 1:27:19 PM ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'Monitoring', 
+		@step_id=1, 
+		@cmdexec_success_code=0, 
+		@on_success_action=1, 
+		@on_success_step_id=0, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'TSQL', 
+		@command=N'Exec USP_SPID_Monitoring', 
+		@database_name=N'OGP_Compas_Support', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobschedule @job_id=@jobId, @name=N'Every 5 minutes', 
+		@enabled=1, 
+		@freq_type=4, 
+		@freq_interval=1, 
+		@freq_subday_type=4, 
+		@freq_subday_interval=5, 
+		@freq_relative_interval=0, 
+		@freq_recurrence_factor=0, 
+		@active_start_date=20210405, 
+		@active_end_date=99991231, 
+		@active_start_time=0, 
+		@active_end_time=235959, 
+		@schedule_uid=N'7b0a0080-bd1d-4cbf-9232-3242a4e42558'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+COMMIT TRANSACTION
+GOTO EndSave
+QuitWithRollback:
+    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave:
+GO
