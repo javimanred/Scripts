@@ -1,4 +1,31 @@
-SELECT	@@servername AS ServerName, 
+DECLARE @LastSOStart TABLE (DateT NVARCHAR(1000))
+DECLARE @CmdShell SQL_VARIANT,
+		@AdvancedOptions SQL_VARIANT
+			   
+INSERT INTO @LastSOStart
+EXEC xp_cmdshell 'systeminfo | find "System Boot Time"'
+
+DELETE FROM @lastSOStart WHERE DateT is null
+
+SELECT @CmdShell = value_in_use FROM sys.configurations WHERE name = 'xp_cmdshell'
+SELECT @AdvancedOptions = value_in_use FROM sys.configurations WHERE name = 'show advanced options'
+
+IF @CmdShell=0
+BEGIN
+	IF @AdvancedOptions = 0
+	BEGIN
+		EXEC sp_configure 'show advanced options',1
+		EXEC sp_configure 'xp_cmdshell',1
+		RECONFIGURE
+	END
+	ELSE
+	BEGIN
+		EXEC sp_configure 'xp_cmdshell',1
+		RECONFIGURE
+	END
+END
+
+	SELECT	@@servername AS ServerName, 
 		CASE WHEN @@servicename = 'MSSQLSERVER' THEN 'Default' ELSE @@SERVICENAME END AS InstanceName,
 		@@VERSION AS Version,
 		( SELECT value_in_use 
@@ -22,4 +49,21 @@ SELECT	@@servername AS ServerName,
       WHERE name = 'max degree of parallelism') AS MaxDegreeOfParallelism,
 		( SELECT CASE WHEN value_in_use = 0 THEN 'FALSE' ELSE 'TRUE' END 
       FROM sys.configurations 
-      WHERE name = 'Ad Hoc Distributed Queries') AS AdHocWorkloads
+      WHERE name = 'Ad Hoc Distributed Queries') AS AdHocWorkloads,
+		DATEDIFF(DAY,( SELECT CAST(REPLACE(REPLACE(DateT,'System Boot Time:          ',''),',','')AS DATETIME) 
+	  FROM @lastSOStart),GETDATE()) AS DaysSinceLastReboot
+
+IF @CmdShell=0
+BEGIN
+	IF @AdvancedOptions = 0
+	BEGIN
+		EXEC sp_configure 'xp_cmdshell',0
+		EXEC sp_configure 'show advanced options',0
+		RECONFIGURE
+	END
+	ELSE
+	BEGIN
+		EXEC sp_configure 'xp_cmdshell',0
+		RECONFIGURE
+	END
+END
