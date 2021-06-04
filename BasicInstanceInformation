@@ -2,11 +2,6 @@ DECLARE @LastSOStart TABLE (DateT NVARCHAR(1000))
 DECLARE @CmdShell SQL_VARIANT,
 		@AdvancedOptions SQL_VARIANT
 			   
-INSERT INTO @LastSOStart
-EXEC xp_cmdshell 'systeminfo | find "System Boot Time"'
-
-DELETE FROM @lastSOStart WHERE DateT is null
-
 SELECT @CmdShell = value_in_use FROM sys.configurations WHERE name = 'xp_cmdshell'
 SELECT @AdvancedOptions = value_in_use FROM sys.configurations WHERE name = 'show advanced options'
 
@@ -15,6 +10,7 @@ BEGIN
 	IF @AdvancedOptions = 0
 	BEGIN
 		EXEC sp_configure 'show advanced options',1
+		RECONFIGURE
 		EXEC sp_configure 'xp_cmdshell',1
 		RECONFIGURE
 	END
@@ -25,7 +21,12 @@ BEGIN
 	END
 END
 
-	SELECT	@@servername AS ServerName, 
+INSERT INTO @LastSOStart
+EXEC xp_cmdshell 'systeminfo | find "System Boot Time"'
+
+DELETE FROM @lastSOStart WHERE DateT is null
+
+SELECT	@@servername AS ServerName, 
 		CASE WHEN @@servicename = 'MSSQLSERVER' THEN 'Default' ELSE @@SERVICENAME END AS InstanceName,
 		@@VERSION AS Version,
 		( SELECT value_in_use 
@@ -58,6 +59,7 @@ BEGIN
 	IF @AdvancedOptions = 0
 	BEGIN
 		EXEC sp_configure 'xp_cmdshell',0
+		RECONFIGURE
 		EXEC sp_configure 'show advanced options',0
 		RECONFIGURE
 	END
