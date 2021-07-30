@@ -101,11 +101,11 @@ BEGIN
 set @filename1= @filepath + @certificatename + @datestring + '.cer'
 set @filename2= @filepath + @certificatename + @datestring + '.cer.key'
 
-set @sqlCmd1 =	' BACKUP CERTIFICATE '+@certificatename+ ' TO FILE = '+''''+@filename1+''''+
+set @sqlCmd1 =	'USE master; BACKUP CERTIFICATE '+@certificatename+ ' TO FILE = '+''''+@filename1+''''+
 				' WITH PRIVATE KEY ( FILE = '+''''+@filename2+''''+
 				' ,ENCRYPTION BY PASSWORD = '+'''!Orbit123'');'
 
-Exec(@sqlCmd1)
+EXEC(@sqlCmd1)
 
 
 FETCH NEXT FROM Backup_certificates    
@@ -130,3 +130,6 @@ begin
 exec sp_configure 'show advanced options', 0
 reconfigure
 end
+
+
+
