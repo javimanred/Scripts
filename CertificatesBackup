@@ -118,15 +118,15 @@ DEALLOCATE Backup_certificates
 set @sao = 1
 set @shell = 1
 
-if (select value_in_use from sys.configurations where name = 'show advanced options') = 0
+
+if @shell  = 0
 begin
-exec sp_configure 'show advanced options', 1
+exec sp_configure 'xp_cmdshell', 0
 reconfigure
-set  @sao = 0
 end
-if (select value_in_use from sys.configurations where name = 'xp_cmdshell') = 0
+
+if @sao = 0
 begin
-exec sp_configure 'xp_cmdshell', 1
+exec sp_configure 'show advanced options', 0
 reconfigure
-set @shell = 0
 end
