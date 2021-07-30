@@ -87,7 +87,7 @@ DECLARE Backup_certificates CURSOR
 READ_ONLY
 FOR 
 SELECT name 
-FROM sys.certificates
+FROM master.sys.certificates
 WHERE pvt_key_encryption_type = 'MK'
 
 OPEN Backup_certificates
@@ -98,8 +98,8 @@ INTO @certificatename
 WHILE @@FETCH_STATUS = 0  
 BEGIN 
 
-set @filename1= @filepath + @certificatename + @datestring + '.key'
-set @filename2= @filepath + @certificatename + @datestring + '.key.cer'
+set @filename1= @filepath + @certificatename + @datestring + '.cer'
+set @filename2= @filepath + @certificatename + @datestring + '.cer.key'
 
 set @sqlCmd1 =	' BACKUP CERTIFICATE '+@certificatename+ ' TO FILE = '+''''+@filename1+''''+
 				' WITH PRIVATE KEY ( FILE = '+''''+@filename2+''''+
