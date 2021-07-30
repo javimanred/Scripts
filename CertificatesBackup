@@ -1,0 +1,132 @@
+USE OGP_Compas_Support
+GO
+CREATE OR ALTER PROCEDURE Certificates_Backups 
+AS
+
+DECLARE @FilePath VARCHAR(200)
+DECLARE @CmdString VARCHAR(250)
+DECLARE @FileName VARCHAR(250)
+DECLARE @FileDate VARCHAR(200)
+DECLARE @filename1 VARCHAR(100)
+DECLARE @filename2 VARCHAR(100)
+DECLARE @datestring VARCHAR(50)
+DECLARE @sqlCmd1 VARCHAR(2000)
+DECLARE @sao SMALLINT 
+DECLARE @shell SMALLINT
+DECLARE @certificatename SYSNAME
+
+set @sao = 1
+set @shell = 1
+
+if (select value_in_use from sys.configurations where name = 'show advanced options') = 0
+begin
+exec sp_configure 'show advanced options', 1
+reconfigure
+set  @sao = 0
+end
+if (select value_in_use from sys.configurations where name = 'xp_cmdshell') = 0
+begin
+exec sp_configure 'xp_cmdshell', 1
+reconfigure
+set @shell = 0
+end
+
+set @filepath='\\10.209.12.240\Backups\certificates\'+@@SERVERNAME
+
+set @CmdString = 'if not exist "'+@FilePath+'\" mkdir '+@FilePath
+EXEC master.dbo.xp_cmdshell @CmdString
+set @CmdString = ''
+
+set @FilePath = @FilePath+'\'
+
+CREATE TABLE #tmpFiles
+	(FileName varchar(250))
+
+SET @CmdString = 'dir ' + @FilePath + '*' 
+
+INSERT INTO #tmpFiles
+EXEC master.dbo.xp_cmdshell @CmdString  --INSERTA INFORMACION DE LOS ARCHIVOS Y CARPETA
+
+--ELIMINA LOS REGISTROS INNECESARIOS COMO TAMAÑO DE LA CARPETA ENTRE OTROS.
+DELETE FROM #tmpFiles
+WHERE Filename IS NULL
+
+--EJECUTA CURSOR QUE VA A ELIMINAR UNO A UNO LOS ARCHIVOS.
+DECLARE FileCursor CURSOR
+FOR 
+--SELECCIONA LOS ARCHIVOS A ELIMINAR, NO DISTINGUE HORA SOLO DÍA.
+SELECT 	REVERSE(SUBSTRING(REVERSE(Filename),0,CHARINDEX(' ', REVERSE(Filename) ) ) ), 
+   	    SUBSTRING(Filename, 1, 22)
+FROM #tmpFiles
+
+OPEN FileCursor
+
+FETCH NEXT FROM FileCursor
+INTO @FileName, @FileDate
+WHILE @@FETCH_STATUS = 0
+
+BEGIN
+	--ARMA LAS LINEAS DE CODIGO PARA ELIMINAR Y LAS ENVIA A TRAVES DE UN SHELL.
+	SET @CmdString = 'del ' + @FilePath + @FileName 
+
+	EXEC master.dbo.xp_cmdshell @CmdString
+
+FETCH NEXT FROM FileCursor
+INTO @FileName, @FileDate
+END
+
+CLOSE FileCursor
+DEALLOCATE FileCursor
+
+DROP TABLE #tmpFiles
+
+set @filepath='\\10.209.12.240\Backups\certificates\'+@@SERVERNAME+'\'
+set @datestring = left(CONVERT(VARCHAR(20), DATEADD(dy,-3,convert(datetime,GETDATE())),112) + REPLACE(CONVERT(VARCHAR(20), GETDATE(),108),':',''),8)
+
+DECLARE Backup_certificates CURSOR
+READ_ONLY
+FOR 
+SELECT name 
+FROM sys.certificates
+WHERE pvt_key_encryption_type = 'MK'
+
+OPEN Backup_certificates
+
+FETCH NEXT FROM Backup_certificates   
+INTO @certificatename  
+  
+WHILE @@FETCH_STATUS = 0  
+BEGIN 
+
+set @filename1= @filepath + @certificatename + @datestring + '.key'
+set @filename2= @filepath + @certificatename + @datestring + '.key.cer'
+
+set @sqlCmd1 =	' BACKUP CERTIFICATE '+@certificatename+ ' TO FILE = '+''''+@filename1+''''+
+				' WITH PRIVATE KEY ( FILE = '+''''+@filename2+''''+
+				' ,ENCRYPTION BY PASSWORD = '+'''!Orbit123'');'
+
+Exec(@sqlCmd1)
+
+
+FETCH NEXT FROM Backup_certificates    
+INTO @certificatename   
+END
+CLOSE  Backup_certificates
+DEALLOCATE Backup_certificates
+
+
+set @sao = 1
+set @shell = 1
+
+if (select value_in_use from sys.configurations where name = 'show advanced options') = 0
+begin
+exec sp_configure 'show advanced options', 1
+reconfigure
+set  @sao = 0
+end
+if (select value_in_use from sys.configurations where name = 'xp_cmdshell') = 0
+begin
+exec sp_configure 'xp_cmdshell', 1
+reconfigure
+set @shell = 0
+end
