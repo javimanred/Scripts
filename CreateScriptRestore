@@ -1,21 +1,40 @@
-/*
-*/
- 
 SET NOCOUNT ON
 GO
+
 DECLARE @FileListCmd            nvarchar(max),	@RestoreCmd             nvarchar(max),
 		@cmd                    nvarchar(max),  @BackupFile             nvarchar(max),
 		@DBName                 sysname,		@DataPath               nvarchar(260),
 		@LogPath                nvarchar(260),	@Version                decimal(10,2),
 		@MaxLogicalNameLength   int,			@MoveFiles              nvarchar(max)
- 
-SET @BackupFile     = N'\\10.209.12.240\Backups\PRDMA-SQL503\COMPAS_TheShoppingChannel_Staging\FULL\PRDMA-SQL503_COMPAS_TheShoppingChannel_Staging_FULL_20210105_231716.bak'
-SET @DBName         = N'COMPAS_TheShoppingChannel_Staging' --target database name
-SET @DataPath       = N'D:\Program Files\Microsoft SQL Server\MSSQL14.MSSQLSERVER\MSSQL\Data' --target data path
-SET @LogPath        = N'L:\Program Files\Microsoft SQL Server\MSSQL14.MSSQLSERVER\MSSQL\Data' --target log path
- 
-/* ************************************
-************************************ */
+
+select *
+into #BackupFileLocation
+from openquery([DEMO-SQL-MAIN],'Select * from ogp_compas_support.dbo.LastBackupDetails')
+
+
+delete 
+from #BackupFileLocation
+where [Database] not like 'Orbit_Demo%'-- or [database] IN ('Compas_Rogers_Care_Archive','Compas_Rogers_Care_Logging','Compas_Rogers_Care_Dim','Compas_Rogers_Care_ETL')
+
+
+
+--SET @BackupFile     = N'\\10.209.12.240\Backups\PRDMA-SQL503\COMPAS_TheShoppingChannel_Staging\FULL\PRDMA-SQL503_COMPAS_TheShoppingChannel_Staging_FULL_20210105_231716.bak'
+--SET @DBName         = N'COMPAS_TheShoppingChannel_Staging' --target database name
+SET @DataPath       = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(260)) --target data path
+SET @LogPath        = CAST(SERVERPROPERTY('InstanceDefaultLogPath') AS nvarchar(260)) --target log path
+
+DECLARE GenerateRestoreScript CURSOR
+FOR
+select  [Database],[Backup File Location]
+from #BackupFileLocation
+
+OPEN GenerateRestoreScript
+
+FETCH NEXT FROM GenerateRestoreScript   
+INTO @DBName, @BackupFile  
+WHILE @@FETCH_STATUS = 0  
+BEGIN  
+
 IF RIGHT(@DataPath, 1) <> '\' SET @DataPath = @DataPath + N'\';
 IF RIGHT(@LogPath, 1) <> '\' SET @LogPath = @LogPath + N'\';
 SET @cmd = N'';
@@ -107,3 +126,10 @@ ELSE
 BEGIN
     PRINT @RestoreCmd;
 END
+FETCH NEXT FROM GenerateRestoreScript   
+INTO @DBName, @BackupFile 
+END
+CLOSE GenerateRestoreScript
+DEALLOCATE GenerateRestoreScript
+
+drop table #BackupFileLocation
