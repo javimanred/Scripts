@@ -7,7 +7,7 @@ SET @Action = IIF(@ActionFlag=0,'ENABLE','DISABLE')
 SET @ScriptToExecute = '';
 SELECT
 @ScriptToExecute = @ScriptToExecute +
-'USE [master]; ALTER LOGIN ['+sp.name+']) '+@Action+'; '
+'USE [master]; ALTER LOGIN ['+sp.name+'] '+@Action+'; '
 FROM sys.server_principals sp
 WHERE sp.name like 'OG\svc.%'
 SELECT @ScriptToExecute ScriptToExecute
